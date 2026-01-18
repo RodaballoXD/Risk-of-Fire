@@ -1,0 +1,90 @@
+FUNCTION get_inventory; RETURNS dict; {
+    line ("%selected_inventory") = {
+        "inventory" = list:Trim(selected.InventoryItems, 10), # Trim so it doesn't contain hotbar
+        "hotbar" = selected.HotbarItems,
+        "armor" = selected.ArmorItems,
+        "offhand" = selected.OffHandItem
+    };
+
+    if (item:GetMaterial(selected.CursorItem) != "air") {
+        line new_inventory = list:Trim(selected.InventoryItems, 10);
+        list:Append(line new_inventory, selected.CursorItem);
+        dict:Set(line ("%selected_inventory"), "inventory", line new_inventory);
+    }
+
+    call print_save("Executed get inventory. Inventory:", line ("%selected_inventory"));
+    return line ("%selected_inventory");
+}
+
+FUNCTION save_inventory; {
+    line ("%selected_inventory") = call get_inventory();
+    dict:Set(global inventories, "%selected", line ("%selected_inventory"));
+
+    call print_save("Saved %selected inv.", global inventories);
+}
+
+FUNCTION load_inventory; RETURNS num; { # Returns a bool (checks if inventory is empty)
+    selected:ClearInventory();
+
+    global inventories: dict;
+    line ("%selected_inventory") = global inventories["%selected"];
+
+    line ("%selected_inventory"): dict;
+    
+    call print_save("Loading %selected inventory", line ("%selected_inventory"));
+    call set_entire_inventory_items(line ("%selected_inventory"));
+
+    selected:SetMaximumHealth(call calculate_health());
+
+    line bool = call has_health_item();
+    return line bool;
+}
+FUNCTION set_entire_inventory_items; PARAM inventory: any; {
+    line inventory: dict;
+    selected:SetInventoryItems(line inventory["inventory"]:list);
+    selected:SetHotbarItems(line inventory["hotbar"]:list);
+    selected:SetArmorItems(line inventory["armor"]:list);
+    line offhand = line inventory["offhand"]:item;
+    *if (!line offhand) { line offhand = item:SetMaterial(item("iron_nugget"), 'air'); }
+    selected:SetItemInSlot(line offhand, 41);
+    if (list:Len(line inventory["inventory"]:list) > 27) {
+        line listy = list:Trim(line inventory["inventory"]:list, 28);
+        selected:GiveItems(line listy);
+    }
+    call print_save("Set %selected inv to", line inventory);
+}
+FUNCTION has_health_item; RETURNS num; {
+    if (call calculate_health() == 0) { return 0; }
+    return 1;
+}
+
+
+
+FUNCTION calculate_health; RETURNS num; {
+    # Get the entire inventory as a list
+    line ("%selected_inventory") = call get_inventory();
+    line ("%selected_entire_inventory") = [];
+    list:AppendList(
+        line ("%selected_entire_inventory"), 
+        line ("%selected_inventory")["inventory"]:list, line ("%selected_inventory")["hotbar"]:list, line ("%selected_inventory")["armor"]:list, line ("%selected_inventory")["offhand"]:list
+    );
+    list:Append(line ("%selected_entire_inventory"), selected.CursorItem);
+
+    line health_count = 0;
+    for (line i in line ("%selected_entire_inventory")) {
+        if (item?Equals(line i, global HEALTH_ITEM){"Comparison Mode"="Ignore stack size"}) {
+            line health_count += item:GetStackSize(line i) * 2;
+        }
+    }
+    call print_save("Calculated %selected health:", line health_count);
+
+    return line health_count;
+}
+
+
+
+
+
+
+
+

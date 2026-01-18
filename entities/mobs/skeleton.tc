@@ -1,0 +1,40 @@
+FUNCTION skeleton_projectile; {
+    local location = defaultEntity.EyeLocation;
+    call projectile(2, 0.5, defaultEntity.EyeLocation, defaultEntity.Direction, 300, par("Dust", {"Size"=0.5}), 0.5);
+}
+
+PROCESS skeleton_loop; {
+    select LastEntity();
+
+    repeat {
+        line location = selectedEntity.Location;
+        line direction = vec(0, 0, 0);
+
+        *preserve_entities() {
+            select AllEntities(); filter ByCondition entity?IsMob(); filter ByDistance(line location, 5);
+            *for_entity() {
+                line direction_away_from_entity = vec:SetLength(vec:Between(selectedEntity.Location, line location), 1);
+                line direction = vec:Add(line direction, vec:Between(selectedEntity.Location, line location));
+            }
+            select AllPlayers(); filter ByDistance(line location, 1);
+            line direction = vec:SetLength(vec:SetComponent(line direction, 0){"Component"="Y"}, 5);
+
+            line direction_away_from_player = vec:SetLength(vec:Between(selected.Location, line location), 1);
+            line direction = vec:Add(line direction, line direction_away_from_player);
+
+            line direction = vec:SetLength(vec:SetComponent(line direction, 0){"Component"="Y"}, 0.08);
+        }
+
+        repeat (10) {
+            selectedEntity:SetVelocity(line direction){"Add to Current Velocity"="True"};
+            wait(2);
+        }
+        
+        if (!selectedEntity?Exists()) {
+            endthread;
+        }
+    }
+}
+
+
+

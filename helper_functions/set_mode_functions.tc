@@ -1,0 +1,79 @@
+FUNCTION set_mode; PARAM mode: str; {
+    global ("%selected_mode") = line mode;
+    list:RemoveValue(global playing, selected.Name);
+    list:RemoveValue(global dead, selected.Name);
+    list:RemoveValue(global lobby, selected.Name);
+    list:Append(global ("%var(mode)"), selected.Name);
+
+    call print_send_to_mode(line mode);
+}
+
+FUNCTION send_to_lobby; {
+    call set_mode("lobby");
+
+    selected:Teleport(global LOBBY_LOC){"Keep Current Rotation" = "True"};
+    selected:ClearInventory();
+    call save_inventory();
+    selected:SetHotbarItems(item("air"), item("air"), item("air"), item("air"), global START_GAME_ITEM);
+    call set_xp(0, 0);
+    start lobby{"Target Mode"="For each in selection"};
+}
+PROCESS lobby; {
+    wait();
+    while (global ("%selected_mode") == "lobby") {
+        if (loc:GetCoordinate(selected.Location){"Coordinate"="Y"} < (loc:GetCoordinate(global LOBBY_LOC){"Coordinate"="Y"}-50)) {
+            selected:Teleport(global LOBBY_LOC){"Keep Current Rotation" = "True"};
+        }
+        wait();
+    }
+}
+
+FUNCTION send_to_game; {
+    call set_mode("playing");
+
+    selected:ClearInventory();
+    *if (!call load_inventory()) {
+        selected:SetInventoryItems(item:SetStackSize(global HEALTH_ITEM, 5));
+        selected:SetHotbarItems(global INITIAL_WEAPON);
+        
+        line health = call calculate_health();
+        selected:SetMaximumHealth(line health);
+    }
+
+    selected:Teleport(global SPAWN_LOC);
+    selected:GivePotionEffect(pot("Slow Falling", 1, 160)){"Show Icon"="False", "Effect Particles"="None"};
+    selected:GivePotionEffect(pot("Resistance", 255, 160)){"Show Icon"="False", "Effect Particles"="None"};
+
+    if (list?Contains(game.SelectionTargetNames, "RodaballoXD")) {
+        call enter_game_test();
+    }
+
+    start start_game_player{"Target Mode"="With current selection"};
+}
+PROCESS start_game_player; {
+    wait();
+    repeat {
+        if (selected?IsGrounded()) {line breaking = 1;}
+        if (selected?IsSneaking()) {line breaking = 1;}
+        if (line breaking == 1) {
+            selected:RemovePotionEffect(pot("Slow Falling"), pot("Resistance"));
+            break;
+        }
+
+        wait();
+    }
+}
+
+FUNCTION send_to_death; {
+    call set_mode("dead");
+
+    wait();
+    selected:Teleport(global DEATH_LOC);
+}
+
+
+
+
+
+
+

@@ -1,0 +1,199 @@
+PLAYER_EVENT Death; {select EventTarget(){"Event Target"="Default"}; call player_death();}
+PLAYER_EVENT MobKillPlayer; {select EventTarget(){"Event Target"="Victim"}; call player_death();}
+
+FUNCTION player_death; {
+    allPlayers:SendMessage(s"<red>%selected died");
+    call print_save("%selected died");
+
+    game:CancelEvent();
+
+    call save_inventory();
+    call send_to_death();
+    selected:ClearInventory();
+    selected:SetHotbarItems(item("air"), item("air"), item("air"), item("air"), global GHOST_ITEM);
+
+    selected:SendTitle(s"<#490000>YOU DIED", s"You will respawn in the next round", 60, 60, 10);
+}
+
+
+
+PLAYER_EVENT Leave; {
+    call print_save(selected.Name, s"<red>left");
+
+    global ("%selected_mode") = "lobby"; # TODO: Purge var instead?
+    list:RemoveValue(global lobby, selected.Name);
+    list:RemoveValue(global playing, selected.Name);
+
+    *if (!saved ("%default_ticks_in_game")) {
+        saved ("%default_ticks_in_game") = 0;
+    }
+    saved ("%default_ticks_in_game"):num += game.TicksSinceStartup - global ("%selected_join_tick"):num;
+
+    # call print_send_to_mode("leave"); # Leave isn't really a mode, it makes it output the word "leave"
+}
+
+PLAYER_EVENT Join; {
+    select EventTarget(){"Event Target"="Default"};
+
+    allPlayers:SendMessage(s"<green>+ %selected Joined!");
+    call print_save("%selected joined");
+    selected:SendMessage(s"<dark_green>Welcome to <aqua>Risk</aqua> of <#ffaa00>Fire");
+    selected:SendTitle(s"<#ffaa00>Risk of Fire", s"You can play in third person view <gray>(F5)", 60, 5, 20);
+
+    if (game.PlayerCount == 1) {
+        call game_start();
+    }
+
+    selected:SetFallingAttribute(0){"Attribute"="Fall damage multiplier"};
+    selected:SetPvPAllowed(){"PVP"="Disable"};
+    
+    global ("%selected_mode") = "lobby"; # can be "lobby", "playing" or "dead"
+
+    global ("%selected_actions") = []; # Contains all actions performed this tick
+
+    *if (!saved ("%default_camera_distance")) {
+        saved ("%default_camera_distance") = 4;
+    }
+    default:SetMiscellaneousAttribute(saved ("%default_camera_distance")){"Attribute"="Camera distance", "Value Type"="Direct"};
+
+    global ("%selected_join_tick") = game.TicksSinceStartup;
+
+    call send_to_lobby();
+
+    start player_loop;
+    call on_join_test();
+    
+    wait(70);
+
+    selected:SendMessage(s"<green>Shift + Swap Hands <gray>(F)</green> to change third person camera distance");
+}
+
+
+
+PLAYER_EVENT RightClick; {
+    select EventTarget(){"Event Target"="Default"};
+
+    if (item?HasTag(selected.MainHandItem, "cancel_right_click", 1)) {
+        game:CancelEvent();
+    }
+
+    list:Append(global ("%selected_actions"), "right_click");
+
+    if (default.MainHandItem == global START_GAME_ITEM) { if (global ("%selected_mode") == "lobby") {
+        call send_to_game();
+    }}
+}
+
+
+
+PLAYER_EVENT PlayerHeal; LAGSLAYER_CANCEL; {
+    if (game.HealEventCause == "natural") {
+        game:CancelEvent();
+    }
+}
+
+PLAYER_EVENT DropItem; LAGSLAYER_CANCEL; {
+    game:CancelEvent();
+}
+
+PLAYER_EVENT ClickInvSlot; LAGSLAYER_CANCEL; {
+    select EventTarget(){"Event Target"="Default"};
+    if (call calculate_health() == 0) {
+        game:CancelEvent();
+    }
+
+    if (list?Contains([item:SetStackSize(game.EventClickedSlotItem, 1), item:SetStackSize(game.EventClickedSlotNewItem, 1)], global HEALTH_ITEM)) {
+        game:CancelEvent();
+        call print_save("%selected clicked health");
+    }
+}
+
+
+
+PLAYER_EVENT PlayerTakeDmg; {
+    default:SetInvulnerabilityTicks(num:Max(default.InvulnerabilityTicks-1, 0));
+    global ("%default_damage_resistance"): num;
+    line damage_taken = game.EventDamage - global ("%default_damage_resistance");
+    line damage_taken = num:Max(line damage_taken, 0);
+    if (line damage_taken <= 0) {
+        game:CancelEvent();
+        return;
+    }
+    game:SetEventDamage(line damage_taken);
+    global ("%default_damage_resistance") += line damage_taken;
+    call print_save("%selected took damage");
+}
+
+
+
+PLAYER_EVENT ProjHit; {
+    line callable = projectile:GetTag("on_hit_entity");
+    *if (line callable) {
+        *preserve_players() {
+            line victim = victim.UUID; # Don't use victim directy into the function, it could not execute at all
+            call ("%var(callable)")(projectile.UUID, line victim, default.UUID);
+        }
+    }
+
+    projectile:Remove();
+}
+
+
+
+PLAYER_EVENT DamageEntity; {
+    if (list?Contains(["entity_attack", "entity_sweep_attack"], game.DamageEventCause)) {
+        line cancel_attack = item:GetTag("cancel_attack", default.MainHandItem);
+        *if (line cancel_attack) {
+            game:CancelEvent();
+        }
+    }
+}
+
+
+
+PLAYER_EVENT SwapHands; {
+    saved ("%default_camera_distance") : num;
+
+    game:CancelEvent();
+    if (default?IsSneaking()) {
+        if (saved ("%default_camera_distance") >= 16) {
+            saved ("%default_camera_distance") = 1;
+        } else {
+            saved ("%default_camera_distance") += 1;
+        }
+        default:SetMiscellaneousAttribute(saved ("%default_camera_distance")){"Attribute"="Camera distance", "Value Type"="Direct"};
+        default:SendMessage(s"<green>Third person <gray>(F5)</gray> camera distance set to <red>%var(%default_camera_distance)</red><gray>/16</gray>\nShift + Swap Hands <gray>(F)</gray> to change");
+        call print_save("%default changed camera distance");
+    }
+}
+
+
+
+PLAYER_EVENT Jump; {
+    print("Jumping");
+    line JUMP_COOLDOWN = 15;
+    if (game.TicksSinceStartup <= global ("%default_last_jump_tick"):num + line JUMP_COOLDOWN) {
+        print("On cooldown");
+        selected:LaunchForward(1);
+        endthread;
+    }
+    print(game.TicksSinceStartup);
+    global ("%default_last_jump_tick") = game.TicksSinceStartup;
+    default:SetMovementAttribute(0){"Attribute"="Jump strength"};
+    repeat (line i to line JUMP_COOLDOWN) {
+        wait(1);
+        if (selected?IsGrounded()) { if (list?Contains(selected.PressedMovementKeys, 'jump')) {
+            line launch_power = (line JUMP_COOLDOWN - line i); # TODO
+            selected:LaunchForward(line launch_power){"Launch Axis"="Yaw Only"};
+            print('Launching:', line launch_power);
+        }}
+    }
+    default:SetMovementAttribute(0.42){"Attribute"="Jump strength"};
+}
+
+
+
+
+
+
+

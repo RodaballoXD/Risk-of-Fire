@@ -1,0 +1,221 @@
+FUNCTION init_constants; {
+    global LOBBY_LOC = loc(50.5, 2000, 50.5); # Apparently it'll only tp you to 1000 y, not more.
+    global SPAWN_LOC = loc(50.5, 90, 50.5, 90, 90);
+    global DEATH_LOC = loc(50.5, 100, 50.5, 90, 90);
+
+    global MOB_CAP = 100;
+
+
+
+    global START_GAME_ITEM = item:SetName(item("nether_star"), s"<green>Start game");
+    global GHOST_ITEM = item:SetName(item("ghast_tear"), s"<gray>Help as a ghost (work in progress, does nothing for now)"); #TODO: Make this do something
+
+    global HEALTH_ITEM = item:SetMaxStackSize(item:SetName(item("apple"), s"<red>Health Point"), 99);
+
+    global INITIAL_WEAPON = item:SetAllTags(item("crossbow"), {"while_held" = "main_weapon_shoot", "cancel_right_click" = 1});
+
+    global OTHER_ITEMS = {
+        "fire_charge" = call _item(
+            item("fire_charge"),
+            0,
+            {"while_held" = "fire_charge", "cancel_right_click" = 1},
+            [
+                s"<#bf6913>Shoots a fireball that deals area damage and sets enemies on fire",
+                s"",
+                s"Damage: <red>2.5</red> <gray>(+2.5 per level)</gray>",
+                s"Burning Time: <red>5</red> seconds",
+                s"Explosion Radius: <red>3</red> blocks",
+                s"Cooldown: <red>6</red> seconds"
+            ]
+        ),
+        "heal" = call _item(
+            item("potion"),
+            s"Heal",
+            {"while_held" = "heal_ability", "cancel_right_click" = 1},
+            [
+                s"<#cf0000>Heals the player instantly",
+                s"",
+                s"Healing: <red>4</red> <gray>(+2 per level)</gray> hp <gray>(2 hp = 1 heart)</gray>",
+                s"Cooldown: <red>8</red> seconds"
+            ],
+            {"color" = "#ff0000", "stack_size" = 64}
+        ),
+        "whirlwind" = call _item(
+            item("iron_axe"),
+            s"Whirlwind",
+            {"while_held" = "whirlwind", "cancel_attack" = 1},
+            [
+                s"<#ffed79>Swings the axe around the player and deals damage to all close enemies",
+                s"",
+                s"Damage: <red>10</red> <gray>(+5 per level)</gray>",
+                s"Area Radius: <red>3.5</red> blocks",
+                s"Cooldown: <red>5</red> seconds"
+            ],
+            {"stack_size" = 64}
+        ),
+        "sniper" = call _item(
+            item("spyglass"),
+            s"Sniper",
+            {"while_held" = "sniper"},
+            [
+                s"<#cbe333>Deals a high amount of damage to an enemy",
+                s"",
+                s"Damage: <red>20</red> <gray>(+10 per level)</gray>",
+                s"Cooldown: <red>4</red> seconds"
+            ],
+            {"stack_size" = 64}
+        ),
+        "arrow_blast" = call _item(
+            item("tipped_arrow"),
+            s"Arrow Blast",
+            {"while_held" = "arrow_blast"},
+            [
+                s"Rapidly shoots many projectiles",
+                s"",
+                s"Arrow Damage: <red>4",
+                s"Arrow Count: <red>10</red> <gray>(+5 per level)",
+                s"Cooldown: 8 seconds"
+            ]
+        ),
+
+        "dash" = call _item(
+            item("feather"),
+            s"<green>Dash",
+            {"while_held" = "dash_ability"},
+            [
+                s"<#fffaa2>Dashes in the direction you are moving and makes you inmune to damage for a short time. Deals damage to a nearby enemy",
+                s"",
+                s"Damage: <red>6</red> <gray>(+1 per level)</gray>",
+                s"Cooldown: <red>2.5</red> / <red>level</red> + <red>1.5</red>  seconds"
+            ]
+        ),
+        "ground_slam" = call _item(
+            item("anvil"),
+            s"<green>Ground Slam",
+            {"while_held" = "ground_slam"},
+            [
+                s"<#000a94>Jumps high and deals area damage on landing",
+                s"",
+                s"Damage: <red>10</red> <gray>(+5 per level)</gray>",
+                s"Area Radius: <red>3</red> blocks",
+                s"Cooldown: <red>10</red> seconds"
+            ]
+        ),
+
+        "minecart" = call _item(
+            item("minecart"),
+            s"<light_purple>Minecart",
+            {"while_held" = "minecart", "cancel_right_click" = 1},
+            [
+                s"<light_purple>Continuously launches the player forward very fast, dealing damage to all enemies in front.",
+                s"<light_purple>Sneaking reduces the speed. Grants damage resistance to the player",
+                s"",
+                s"Duration: <red>3</red> seconds",
+                s"Damage: <red>10</red> <gray>(+5 per level)",
+                s"Resistance: <red>40%</red> damage reduction",
+                s"Cooldown: <red>20</red> seconds"
+            ],
+            {"stack_size" = 64}
+        )
+    };
+
+
+
+    global ENEMIES = {
+        # "example" = call enemy(
+        #     item("structure_void"), # spawn_egg
+        #     100, # credits
+        #     10, # hp
+        #     [ item("structure_void"), item("structure_void"), item("structure_void"), item("structure_void") ], # armor
+        #     { "Main hand" = item("structure_void"), "Off hand" = item("structure_void") }, # inventory
+        #     { "on_shoot_projectile" = "spawn_projectile_thingy", "on_hit" = "do_on_hit_things" } # tags
+        # ),
+
+        "zombie" = call enemy(
+            item("zombie_spawn_egg"),
+            150,
+            20,
+            0,
+            0,
+            0
+        ),
+
+        "skeleton" = call enemy(
+            item("skeleton_spawn_egg"),
+            150,
+            12,
+            0,
+            { "Main hand" = item:AddAttribute(item("bow"), 50){"Active Equipment Slot"="Main hand", "Attribute"="Follow range"} },
+            { "on_spawn" = "skeleton_loop", "on_shoot_bow" = "skeleton_projectile", "cancel_shoot_bow" = 1 }
+        ),
+
+        "vindicator" = call enemy(
+            item("vindicator_spawn_egg"),
+            400,
+            50,
+            0,
+            { "Main Hand" = item("iron_axe") },
+            { "on_spawn"="vindicator_init" }
+        ),
+
+        "goat" = call enemy(
+            item("goat_spawn_egg"),
+            500,
+            40,
+            0,
+            0,
+            { "on_spawn" = "goat_loop" }
+        ),
+
+        "zombie_villager" = call enemy(
+            item("zombie_villager_spawn_egg"),
+            400,
+            40,
+            0,
+            0,
+            { "on_spawn"="zombie_villager_init", "on_death"="zombie_villager_death" }
+        ),
+
+        "flying_creeper" = call enemy(
+            item("creeper_spawn_egg"),
+            500,
+            20,
+            0,
+            0,
+            { "on_spawn"="creeper_loop", "on_death"="creeper_explosion" }
+        ),
+
+        "slime" = call enemy(
+            item("slime_spawn_egg"),
+            1000,
+            80,
+            0,
+            0,
+            { "on_spawn"="slime_loop", "on_death"="slime_death", "cancel_transform"=1, "cancel_hit_player"=0 }
+        )
+    };
+}
+
+
+
+FUNCTION enemy; PARAM spawn_egg: item; PARAM credits: num; PARAM hp: num; PARAM armor: optional any; PARAM inventory: optional any; PARAM tags: optional any; RETURNS dict; {
+    *if (!line armor) { line armor = []; }
+    *if (!line inventory) { line inventory = {}; }
+    *if (!line tags) { line tags = {}; }
+    line enemy = {
+        "spawn_egg" = line spawn_egg,
+        "credits" = line credits,
+        "hp" = line hp,
+        "armor" = line armor,
+        "inventory" = line inventory,
+        "tags" = line tags
+    };
+    return line enemy;
+}
+
+
+
+
+
+
+

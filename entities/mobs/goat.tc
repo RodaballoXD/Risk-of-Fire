@@ -1,0 +1,62 @@
+PROCESS goat_loop; {
+    select LastEntity();
+
+    repeat {
+        wait(num:Random(40, 60));
+
+        line y_coord = 50;
+        line location = loc:SetCoordinate(selectedEntity.Location, line y_coord){"Coordinate"="Y"};
+        selectedEntity:Teleport(line location);
+        *preserve_entities() {
+            select AllPlayers(); filter ByDistance(line location, 1);
+            line target_uuid = game.SelectionTargetUUIDs;
+            line target_loc = selected.Location;
+            line target_loc = loc:SetCoordinate(line target_loc, line y_coord){"Coordinate"="Y"};
+        }
+        
+        if (game.SelectionSize == 0) {
+            endthread;
+        }
+
+        repeat (line i to 3) {
+            *preserve_entities() {
+                select PlayersByName(line target_uuid);
+                line target_loc = selected.Location;
+                line target_loc = loc:SetCoordinate(line target_loc, loc:GetCoordinate(line location){"Coordinate"="Y"}){"Coordinate"="Y"};
+            }
+            line vector = vec:Between(selectedEntity.Location, line target_loc);
+            allPlayers:DisplayParticleEffect(
+                par("Critical Hit", {"Amount"=20, "Spread"=[0.25,0.25], "Motion"=vec(0,0,0)}),
+                loc:ShiftOnVector(selectedEntity.EyeLocation, line vector, 1)
+            );
+            repeat (6) {
+                selectedEntity:FaceLocation(line target_loc);
+                wait(1);
+            }
+        }
+
+        line vector = vec:SetLength(line vector, 1);
+        line next_location = selectedEntity.Location;
+        line hit_players = [];
+        repeat (20) {
+            if (selectedEntity.CurrentHealth <= 0) {
+                endthread;
+            }
+            line location = selectedEntity.Location;
+            *preserve_entities() {
+                select PlayersByCondition player?IsHitboxNearLocation(line location, 0.5){"Shape"="Sphere"};
+                filter ByCondition !list?Contains(line hit_players, '%default');
+                list:Append(line hit_players, '%default');
+                call knockback_player(vec:SetComponent(line vector, 0.5){"Component"="Y"}, 2, 0.5);
+                selected:Damage(6);
+            }
+            line next_location = loc:ShiftOnVector(line next_location, line vector);
+            selectedEntity:FaceLocation(line next_location);
+            selectedEntity:LaunchTowardLocation(line next_location){"Add to Current Velocity"="False"};
+            wait(1);
+        }
+    }
+}
+
+
+

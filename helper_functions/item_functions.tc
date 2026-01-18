@@ -1,0 +1,27 @@
+FUNCTION _item; PARAM base_item: item; PARAM name: optional any; PARAM tags: optional dict; PARAM lore: optional any; PARAM data: optional dict; RETURNS item; {
+    *if (line data) {
+        for (line key, line value in line data) {
+            line ("_%var(key)") = line value;
+        }
+    }
+
+    line item = line base_item;
+    *if (line name) {
+        item:SetName(line item, line name);
+    }
+    *if (line tags) {
+        item:SetAllTags(line item, line tags);
+    }
+    *if (line lore) {
+        item:SetLore(line item, line lore);
+    }
+
+    *if (line _stack_size) {
+        item:SetMaxStackSize(line item, line _stack_size);
+    }
+    *if (line _color) {
+        item:SetColor(line item, line _color);
+    }
+    
+    return line item;
+}

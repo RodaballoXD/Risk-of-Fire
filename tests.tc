@@ -1,0 +1,15 @@
+FUNCTION on_join_test; {
+    # game:SetRegion(item("barrier"), loc(0.5, 99.5, 0.5), loc(100.5, 99.5, 100.5));
+}
+
+FUNCTION enter_game_test; {
+    # selected:GiveItems(global OTHER_ITEMS:dict["minecart"], 1);
+    # selected:SetMaximumHealth(50){"Heal Player to Max Health"="True"};
+}
+
+
+
+
+
+
+

@@ -1,0 +1,358 @@
+FUNCTION game_start; {
+    call print_save("GAME_START called");
+    start game_loop{"Target Mode"="With no targets"};
+    
+    global lobby = [];
+    global playing = [];
+    global dead = [];
+
+    global inventories = {
+        "player_name" = {
+            "inventory" = [ item("structure_void") ],
+            "hotbar" = [],
+            "armor" = [],
+            "offhand" = item("structure_void")
+        }
+    };
+
+    global game_state = {
+        "state" = 0 # None
+    };
+
+    call init_constants();
+}
+PROCESS game_loop; {
+    call print_save("GAME_LOOP called");
+
+    line WAVE_DURATION = 1200;
+
+    line playing = 0;
+
+    line raw_credits = 0;
+    line level = 0;
+    line time_remaining = 0;
+
+    line mobs_pool = [];
+
+    repeat {
+        wait();
+        
+        *if (!line playing) { # If not playing
+            if (list:Len(global playing) != 0) { # If we should be playing (there are players in play mode)
+                call print_save("STARTING GAME (set playing to 1)");
+                dict:Set(global game_state, "state", "playing");
+                line playing = 1;
+                line raw_credits = 0;
+                line level = 0;
+                line time_remaining = 0;
+                line mobs_pool = [];
+            }
+            continue;
+        }
+
+        if (list:Len(global playing) == 0) { # If we shouldn't be playing
+            call print_save(s"ENDING GAME");
+            dict:Set(global game_state, "state", 0);
+            start kill_all_mobs;
+            line playing = 0;
+            line raw_credits = 0;
+            line level = 0;
+            line time_remaining = 0;
+            line mobs_pool = [];
+            
+            select AllPlayers();
+            wait(1);
+            *for_player() {
+                call send_to_lobby();
+            }
+            selected:SendTitle(s"<red>Game Ended", s"All players died", 60, 20, 10);
+            selected:SendMessage(s"<red>Ending Game");
+            select Nothing();
+            continue;
+        }
+
+        # Now if we are playing and we should be playing all the following code executes:
+        
+        call set_xp_all_players(line level, (line WAVE_DURATION - line time_remaining)/12);
+        if (list?Contains([600, 200, 60], line time_remaining)) {
+            call print_save("Wave time remaining:", line time_remaining);
+            allPlayers:SendTitle(s"", txt:SetToStyledText(s"<red>", line time_remaining / 20, s" secs"), 5, 3, 2);
+        }
+
+        if (line time_remaining <= 0) { # If end of round
+            call print_save("END OF ROUND");
+            line mobs_pool = call add_mob(line mobs_pool, line level);
+
+            call new_level(line level, line mobs_pool);
+
+            line level += 1;
+            line time_remaining = line WAVE_DURATION;
+            # if (line level < 20) {
+            #     line time_remaining = 100;
+            # }
+            call print_save("LEVEL:", line level);
+        }
+        
+        line level_multiplier = num:Exponent(1.25, line level + 1);
+        line player_multiplier = 0.5 + 0.5 * (list:Len(global playing) + list:Len(global dead));
+        line multiplier = line level_multiplier * line player_multiplier;
+
+        line raw_credits += 1;
+        line time_remaining -= 1;
+
+        if (num:Random(0, 1){"Rounding Mode"="Decimal number"} <= 0.05) {
+            line time_passed = line WAVE_DURATION - line time_remaining;
+            line target_raw_credits = ((-1/640*100) *line time_passed*line time_passed)/100 + (5/4) * line time_passed; # -1/640 x**2 + 5/4 x    //Multiply and divide by 100 to handle decimal precision
+
+            line to_use = line raw_credits - line target_raw_credits;
+            line to_use = num:Min(line to_use, line raw_credits);
+
+
+            line used = call spawn_mobs(line to_use * line multiplier, line mobs_pool, line raw_credits * line multiplier);
+            line raw_credits -= line used / line multiplier;
+        }
+    }
+}
+
+
+
+FUNCTION new_level; PARAM level: num; PARAM mobs_pool: list; {
+    call print_save("New Level Called", line level, line mobs_pool);
+    dict:Set(global game_state, "state", "rewards");
+    
+    if (line level == 0) {
+        dict:Set(global game_state, "state", "playing");
+        call spawn_mobs(500, line mobs_pool, 10000, line mobs_pool[list:Len(line mobs_pool)]);
+        return;
+    }
+
+    start kill_all_mobs;
+
+    select PlayersByCondition global ("%selected_mode") == "dead";
+    call print_save("Sending Dead to Play");
+    *for_player() {
+        call send_to_game();
+    }
+    select Nothing();
+
+    allPlayers:SendTitle(s"<dark_green>Wave Completed", s"<gray>Starting reward phase", 20, 5, 15);
+
+    wait(40);
+
+    select PlayersByCondition global ("%selected_mode") == "playing";
+    selected:Heal();
+    call print_save("Calling reward_players");
+    call reward_players(line level);
+    selected:SendTitle(s"<dark_green>Starting Wave", txt:SetToStyledText(s"<red>Wave ", line level + 1), 20, 5, 15);
+    select Nothing();
+
+    wait(20);
+    
+    dict:Set(global game_state, "state", "playing");
+    call spawn_mobs(500, line mobs_pool, 10000, line mobs_pool[list:Len(line mobs_pool)]);
+
+    select PlayersByCondition global ("%selected_mode") == "playing";
+    call tip();
+    select Nothing();
+}
+
+FUNCTION add_mob; PARAM mobs_pool: list; PARAM level: num; RETURNS list; {
+    call print_save("Called add_mob", line mobs_pool, line level);
+    if (list?SizeEquals(line mobs_pool, 0)) {
+        list:Append(line mobs_pool, "slime"); # TODO
+    }
+    else {
+        line mobs_to_add = dict:GetKeys(global ENEMIES);
+        for (line i in line mobs_pool) {
+            list:RemoveValue(line mobs_to_add, line mobs_pool);
+        }
+
+        line mobs_to_add = list:Trim(line mobs_to_add, 1, 3);
+        # print(line mobs_to_add);
+
+        if (list:Len(line mobs_to_add) == 0) { return line mobs_pool; }
+
+        line mob = var:SetToRandom(line mobs_to_add);
+        list:Append(line mobs_pool, line mob);
+    }
+    call print_save("New mobs_pool", line mobs_pool);
+    return line mobs_pool;
+}
+
+FUNCTION reward_players; PARAM level: optional num = 0; {
+    call print_save("Called Reward Players");
+    *for_player() {
+        call save_inventory();
+    }
+    selected:ClearInventory();
+
+    selected:SendMessage(s"<gold>\nShift + Right Click to select an item");
+    selected:SendTitle(s"", s"<gold>Choose an item", 20, 5, 5);
+    *for_player() {
+        call select_rewards_give(line ("%selected_rewards"), line ("%selected_chosen_item"), line level);
+        call print_save("Rewards selected:", line ("%selected_rewards"), line ("%selected_chosen_item"));
+    }
+
+    call print_save("Waiting for everyone to chose rewards");
+    repeat(line i to 300) {
+        call set_xp(line level, line i/2.95); # i/2.95, Little higher than i/300*100
+        selected:SendActionBar(s"<gold>Waiting for all players  ", s"<gray>(Shift + RClick to choose)  ", txt:SetToStyledText(s"<red>", num:Divide(300 - line i, 20){"Division Mode"="Floor result"}, s" secs"));
+        wait();
+        line someone_choosing = 0;
+        *for_player() {
+            call check_choosing(line ("%selected_chosen_item"), line someone_choosing, line ("%selected_rewards"));
+        }
+        *if (!line someone_choosing) {
+            break;
+        }
+    }
+    selected:SendActionBar(s"<gold>Items chosen");
+    call print_save("Rewards chosen");
+
+    wait(40);
+
+    *for_player() {
+        selected:SendMessage(s"<green>You got", item:GetName(line ("%selected_chosen_item")));
+        call give_chosen_item(line ("%selected_chosen_item"), line ("%selected_rewards"));
+    }
+}
+
+FUNCTION select_rewards_give; PARAM _rewards: var; PARAM _chosen_item: var; PARAM level: var; {
+    line _rewards = call select_rewards(line level);
+    call print_save("%selected rewards:", line _rewards);
+    selected:SetHotbarItems(
+        item("air"), item("air"), item("air"),
+        line _rewards[1], line _rewards[2], line _rewards[3], 
+        item("air"), item("air"), item("air")
+    );
+    line _chosen_item = 0; # None
+}
+
+FUNCTION check_choosing; PARAM _chosen_item: var; PARAM someone_choosing: var; PARAM _rewards: var; {
+    *if (!line _chosen_item) {
+        if (selected?IsSneaking()) { if (list?Contains(global ("%selected_actions"), "right_click")) { if (list?Contains(line _rewards, selected.MainHandItem)) {
+            line _chosen_item = selected.MainHandItem;
+            selected:ClearInventory();
+            selected:GiveItems(line _chosen_item);
+            call print_save("%selected selected reward", line _chosen_item);
+        }}}
+        line someone_choosing = 1;
+    }
+}
+
+FUNCTION give_chosen_item; PARAM _chosen_item: var; PARAM _rewards: var; {
+    call print_save("Called give_chosen_item", line _chosen_item, line _rewards);
+    *if (!line _chosen_item) {
+        line _chosen_item = selected.MainHandItem;
+    }
+    if (!list?Contains(line _rewards, line _chosen_item)) {
+        line _chosen_item = var:SetToRandom(line _rewards);
+    }
+
+    call load_inventory();
+    selected:GiveItems(call process_reward(line _chosen_item));
+    selected:SetMaximumHealth(call calculate_health());
+}
+
+FUNCTION select_rewards; PARAM level: num; RETURNS list; {
+    line REWARDS = {
+        "common" = [
+            "_health1",
+            "fire_charge",
+            "heal",
+            "whirlwind",
+            "sniper",
+            "arrow_blast"
+        ],
+        "rare" = [
+            "_health2",
+            "dash",
+            "ground_slam"
+        ],
+        "epic" = [
+            "_health3",
+            "minecart"
+        ],
+        "legendary" = [
+            "_health4"
+        ]
+    };
+    line RARITY_COLOR = {
+        "common" = s"",
+        "rare" = s"<green>",
+        "epic" = s"<light_purple>",
+        "legendary" = s"<red>"
+    };
+
+    line chance_legendary = num:Clamp((line level - 10) * 0.5, 0, 10);
+    line chance_epic = num:Clamp((line level - 5) * 1.5, 0, 30);
+    line chance_rare = num:Clamp((line level - 2) * 3, 0, 60);
+    line chance_common = 100;
+
+    line rewards = [];
+    line rarities = [];
+    repeat (3) {
+        line current = "";
+        do {
+            line num = num:Random(1, 100){"Rounding Mode"="Decimal number"};
+            repeat (1) {
+                if (line num < line chance_legendary) { line rarity = "legendary"; break; }
+                if (line num < line chance_epic) { line rarity = "epic"; break; }
+                if (line num < line chance_rare) { line rarity = "rare"; break; }
+                if (line num < line chance_common) { line rarity = "common"; break; }
+            }
+            line current = var:SetToRandom(dict:Get(line REWARDS, line rarity));
+        }
+        while (list?Contains(line rewards, line current))
+
+        list:Append(line rewards, line current);
+        list:Append(line rarities, line rarity);
+    }
+
+    line rewards_as_items = [];
+    repeat (line i to 3) {
+        line reward_str = list:Get(line rewards, line i);
+        if (str?StartsWith(line reward_str, "_health")) {
+            line actual_item = global HEALTH_ITEM;
+        } else {
+            line actual_item = dict:Get(global OTHER_ITEMS, line reward_str);
+        }
+
+        line reward_item = line actual_item;
+
+        item:ClearTags(line reward_item); # TODO: Check nothing broke
+        item:SetAllTags(line reward_item, {
+            "reward" = line reward_str,
+            "cancel_right_click" = 1
+        });
+
+        if (str?StartsWith(line reward_str, "_health")) {
+            line reward_item = item:SetStackSize(line reward_item, num:Parse(str:Trim(line reward_str, 8)));
+        }
+
+        list:Append(line rewards_as_items, line reward_item);
+    }
+
+    return line rewards_as_items;
+}
+
+FUNCTION process_reward; PARAM reward_item: item; RETURNS item; {
+    line reward_str = item:GetTag(line reward_item, "reward");
+
+    if (str?StartsWith(line reward_str, "_health")) {
+        line actual_item = global HEALTH_ITEM;
+        line actual_item = item:SetStackSize(line actual_item, num:Parse(str:Trim(line reward_str, 8)));
+    }
+    else {
+        line actual_item = dict:Get(global OTHER_ITEMS, line reward_str);
+    }
+
+    return line actual_item;
+}
+
+
+
+
+
+
+

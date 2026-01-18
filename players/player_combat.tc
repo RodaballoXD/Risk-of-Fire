@@ -1,0 +1,394 @@
+FUNCTION get_closest_enemy_body_loc; PARAM max_distance: optional num = 200; PARAM angle: optional num = 180; RETURNS any; {
+    line player_loc = default.Location;
+
+    select EntitiesByCondition entity?IsNearLocation(line player_loc, line max_distance){"Shape"="Sphere"};
+    filter ByCondition entity?IsMob(); filter ByCondition entity?Exists();
+    if (line angle < 180) {
+        filter ByDistance(line player_loc, 50);
+
+        line player_vector = vec:FromRotation(0, loc:GetCoordinate(line player_loc){"Coordinate"="Yaw"}, 1); # No pitch
+        line angle_cosine = num:Cos(line angle);
+
+        *for_entity() { # Iterates over the selection
+            line to_entity_vector = vec:Between(line player_loc, selectedEntity.Location);
+            vec:SetComponent(line to_entity_vector, 0){"Component"="Y"};
+            vec:SetLength(line to_entity_vector, 1);
+
+            line dot_product = vec:Dot(line player_vector, line to_entity_vector);
+            if (line dot_product >= line angle_cosine) {
+                line uuid = selectedEntity.UUID;
+                break;
+            }
+        }
+        select EntitiesByUUID(line uuid);
+    }
+
+    if (game.SelectionSize >= 1) {
+        filter ByDistance(line player_loc, 1);
+        line enemy_loc = selected.MidpointLocation;
+    } else {
+        select EventTarget(){"Event Target"="Default"};
+        line enemy_loc = 0;
+    }
+    select EventTarget(){"Event Target"="Default"};
+
+    return line enemy_loc;
+}
+
+
+
+FUNCTION knockback_player; PARAM vector: vec; PARAM length: num; PARAM y_launch: optional num = 0; PARAM add_to_current: optional str = "False"; {
+    line vector = vec:SetLength(line vector, line length);
+    line vector = vec:SetComponent(line vector, line y_launch * line length){"Component"="Y"};
+    *for_player() {
+        if (selected.InvulnerabilityTicks == 0) {
+            selected:SetVelocity(line vector){"Add to Current Velocity" = line add_to_current ? "False"};
+        }
+    }
+}
+
+
+
+FUNCTION main_weapon_shoot; {
+    if (!selected?ItemIsNotOnCooldown(global INITIAL_WEAPON)) {
+        return;
+    }
+
+    line enemy_loc = call get_closest_enemy_body_loc(20);
+    *if (!line enemy_loc) { return; }
+    
+    line launch_point = loc:FaceLocation(selected.EyeLocation, line enemy_loc);
+    selected:LaunchProjectile(item("arrow"), line launch_point, item("air"), 60, 0);
+    lastEntity:SetTag("damage", 6);
+    
+    if (!selected?IsSprinting()) { if (!list?Contains(selected.PressedMovementKeys, "jump")) { if (selected?IsGrounded()) {
+        selected:LaunchTowardLocation(line enemy_loc, -5){"Add to Current Velocity"="True", "Ignore Distance"="True"};
+    }}}
+
+    selected:SetItemCooldown(global INITIAL_WEAPON, 15);
+}
+
+
+
+FUNCTION fire_charge; {
+    line item = selected.MainHandItem;
+    if (!selected?ItemIsNotOnCooldown(line item)) {
+        return;
+    }
+
+    line enemy_loc = call get_closest_enemy_body_loc(200, 30);
+    *if (!line enemy_loc) { return; }
+
+    line launch_point = loc:FaceLocation(selected.EyeLocation, line enemy_loc);
+    # line launch_point = selected.EyeLocation;
+    selected:LaunchProjectile(item("fire_charge"), line launch_point, item("air"), 30, 0);
+    
+    lastEntity:SetTag("cancel_event", 1);
+    lastEntity:SetTag("damage", "0");
+    lastEntity:SetTag("on_hit_entity", "fire_charge_explosion");
+    lastEntity:SetTag("level", item:GetStackSize(line item));
+
+    selected:SetItemCooldown(line item, 120);
+    selected:SetHotbarSlot(1);
+}
+FUNCTION fire_charge_explosion; PARAM projectile_uuid: str; PARAM victim_uuid: str; PARAM damager_uuid: str; {
+    select EntitiesByUUID(line victim_uuid);
+    if (game.SelectionSize == 0) { select EntitiesByUUID(line projectile_uuid); }
+    line loc = selected.Location;
+
+    select EntitiesByUUID(line projectile_uuid);
+    line level: num = selectedEntity:GetTag("level");
+
+    select EntitiesByCondition entity?IsNearLocation(line loc, 6){"Shape"="Sphere"};
+    filter ByCondition entity?IsMob();
+    wait(0);
+    line multiplier = 1;
+    *for_entity() {
+        selectedEntity:Damage(line level * 2.5 * line multiplier);
+        selectedEntity:SetFireTicks(100 * line multiplier);
+        line multiplier *= 0.9;
+    }
+    selectedEntity:LaunchUp(8){"Add to Current Velocity"="False"}; selectedEntity:LaunchTowardLocation(line loc, -30){"Add to Current Velocity"="True", "Ignore Distance"="True"};
+
+    game:CreateExplosion(line loc, 0);
+}
+
+
+
+FUNCTION dash_ability; {
+    line item = selected.MainHandItem;
+    if (!selected?ItemIsNotOnCooldown(line item)) {
+        if (selected:GetItemCooldown(line item) >= 30) { selected:SetHotbarSlot(1); }
+        return;
+    }
+    line level = item:GetStackSize(line item);
+    selected:SetHotbarSlot(1);
+    line cooldown = 30 + 50 / line level;
+    selected:SetItemCooldown(line item, line cooldown);
+
+    line directions_map = {
+        "forward" = vec(1, 0, 0),
+        "backward" = vec(-1, 0, 0),
+        "left" = vec(0, 0, -1),
+        "right" = vec(0, 0, 1),
+        "jump" = vec(0, 0, 0),
+        "sneak" = vec(0, 0, 0),
+        "sprint" = vec(0, 0, 0)
+    };
+
+    line pressed = selected.PressedMovementKeys;
+    line dash_direction = vec(0, 0, 0);
+    for (line i in line pressed) {
+        line dash_direction = vec:Add(line dash_direction, dict:Get(line directions_map, line i));
+    }
+    if (line dash_direction == vec(0, 0, 0)) { line dash_direction = vec(1, 0, 0); }
+    line dash_direction = vec:SetComponent(line dash_direction, 0.1){"Component"="Y"};
+
+    line dash_direction = vec:RotateAroundAxis(vec:SetLength(line dash_direction, 1.5), selected.Yaw*-1 - 90){"Axis"="Y"};
+    selected:SetVelocity(line dash_direction);
+    selected:SetInvulnerabilityTicks(15);
+    *preserve_players() {
+        line player_loc = selected.Location;
+        select EntitiesByCondition entity?IsNearLocation(loc:ShiftOnVector(line player_loc, line dash_direction, 2.5), 5);
+        filter ByCondition entity?IsMob();
+        filter ByDistance(line player_loc, 1);
+        if (game.SelectionSize != 0) {
+            selectedEntity:Damage(5 + line level);
+            allPlayers:DisplayParticleEffect(par("Sweep Attack"), selected.MidpointLocation);
+        }
+    }
+}
+
+
+
+FUNCTION heal_ability; {
+    line item = selected.MainHandItem;
+    if (!selected?ItemIsNotOnCooldown(line item)) {
+        return;
+    }
+
+    line level = item:GetStackSize(line item);
+    selected:Heal(2 + 2 * line level);
+
+    selected:SetHotbarSlot(1);
+    selected:SetItemCooldown(line item, 160);
+}
+
+
+
+FUNCTION ground_slam; {
+    line item = selected.MainHandItem;
+    if (!selected?ItemIsNotOnCooldown(line item)) {
+        return;
+    }
+
+    local level = item:GetStackSize(line item);
+    start ground_slam{"Local Variables"="Copy", "Target Mode"="With current selection"};
+
+    selected:SetHotbarSlot(1);
+    selected:SetItemCooldown(line item, 200);
+}
+
+PROCESS ground_slam; {
+    selected:LaunchUp(13){"Add to Current Velocity"="False"};
+    selected:LaunchForward(8){"Add to Current Velocity"="True", "Launch Axis"="Yaw Only"};
+    selected:SetInvulnerabilityTicks(2);
+
+    wait(10);
+    repeat {
+        line y_velocity = vec:GetComponent(selected.Velocity){"Component"="Y"};
+        if (line y_velocity < 0) {
+            selected:SetInvulnerabilityTicks(10);
+            selected:LaunchUp(-0.5){"Add to Current Velocity"="True"};
+        }
+        wait();
+        if (selected?IsGrounded()) {
+            break;
+        }
+    }
+
+    line player_loc = selected.Location;
+
+    select EntitiesByCondition entity?IsNearLocation(line player_loc, 6){"Shape"="Sphere"};
+    filter ByCondition entity?IsMob();
+    filter ByDistance(line player_loc, 50);
+    line multiplier = 1;
+    *for_entity() {
+        selectedEntity:Damage((local level:num * 5 + 5) * line multiplier);
+        line multiplier *= 0.9;
+    }
+    selectedEntity:LaunchUp(8){"Add to Current Velocity"="False"};
+    selectedEntity:LaunchTowardLocation(loc:ShiftInDirection(line player_loc, 3), -90){"Add to Current Velocity"="True", "Ignore Distance"="True"};
+}
+
+
+
+FUNCTION whirlwind; {
+    line item = selected.MainHandItem;
+    if (!selected?ItemIsNotOnCooldown(line item)) {
+        return;
+    }
+
+    selected:SetHotbarSlot(1);
+    selected:SetItemCooldown(line item, 100);
+
+    line level = item:GetStackSize(line item);
+
+    line player_loc = selected.Location;
+    *preserve_players() {
+        select EntitiesByCondition entity?IsNearLocation(line player_loc, 7){"Shape"="Sphere"};
+        filter ByCondition entity?IsMob();
+        filter ByDistance(line player_loc, 50);
+        line multiplier = 1;
+        *for_entity() {
+            selectedEntity:Damage((line level * 5 + 5) * line multiplier);
+            line multiplier *= 0.9;
+        }
+        selectedEntity:LaunchUp(4){"Add to Current Velocity"="False"};
+        selectedEntity:LaunchTowardLocation(line player_loc, -60){"Add to Current Velocity"="True", "Ignore Distance"="True"};
+        
+    }
+
+    line vector = vec:SetComponent(selected.Direction, 0.0){"Component"="Y"};
+    line body_loc = selected.MidpointLocation;
+    repeat (4) {
+        repeat (4) {
+            line vector = vec:RotateAroundAxis(line vector, 22.5){"Axis"="Y"};
+            allPlayers:DisplayParticleEffect(
+                par("Sweep Attack", {"Size"=0.7}),
+                loc:ShiftOnVector(line body_loc, line vector, 3.5)
+            );
+        }
+        wait();
+    }
+}
+
+
+
+FUNCTION sniper; {
+    line item = selected.MainHandItem;
+    if (!selected?ItemIsNotOnCooldown(line item)) {
+        return;
+    }
+
+    line enemy_loc = call get_closest_enemy_body_loc(200, 10);
+    *if (!line enemy_loc) { return; }
+
+    selected:SetHotbarSlot(1);
+    selected:SetItemCooldown(line item, 80);
+
+    line level = item:GetStackSize(line item);
+
+    line launch_point = loc:FaceLocation(selected.EyeLocation, line enemy_loc);
+    selected:LaunchProjectile(item("arrow"), line launch_point, item("air"), 100, 0);
+    lastEntity:SetTag("damage", 10 + 10 * line level);
+
+    selected:LaunchTowardLocation(line enemy_loc, -90){"Ignore Distance"="True"};
+}
+
+
+
+FUNCTION arrow_blast; {
+    local item = selected.MainHandItem;
+    if (!selected?ItemIsNotOnCooldown(local item)) {
+        return;
+    }
+
+    selected:SetHotbarSlot(1);
+    selected:SetItemCooldown(local item, 160);
+
+    start arrow_blast{"Local Variables"="Copy", "Target Mode"="With current selection"};
+}
+
+PROCESS arrow_blast; {
+    line level = item:GetStackSize(local item);
+
+    line player_loc = selected.Location;
+    line player_uuid = selected.UUID;
+    *preserve_players() {
+        line arrow_count = 0;
+        line max_arrows = 5 + 5 * line level;
+        repeat {
+            select EntitiesByCondition entity?IsMob();
+            filter ByDistance(line player_loc, 5);
+            if (game.SelectionSize == 0) { break; }
+            *for_entity() {
+                line enemy_body_loc = selectedEntity.MidpointLocation;
+                select PlayersByName(line player_uuid);
+                line launch_point = loc:FaceLocation(selected.EyeLocation, line enemy_body_loc);
+                selected:LaunchProjectile(item("arrow"), line launch_point, item("air"), 90, 0);
+                lastEntity:SetTag("damage", 4);
+
+                line arrow_count += 1;
+                if (line arrow_count >= line max_arrows) {
+                    line break = 1;
+                    break;
+                }
+
+                wait(2);
+            }
+            *if (line break) {
+                break;
+            }
+        }
+    }
+}
+
+
+
+FUNCTION minecart; {
+    line item = selected.MainHandItem;
+    if (!selected?ItemIsNotOnCooldown(line item)) {
+        return;
+    }
+    local level = item:GetStackSize(line item);
+
+    selected:SetHotbarSlot(1);
+    selected:SetItemCooldown(line item, 400);
+
+    start minecart{"Local Variables"="Copy", "Target Mode"="With current selection"};
+}
+
+PROCESS minecart; {
+    local level : num;
+
+    line hit_enemies = {}; # uuid: tick
+    repeat (60) {
+        line launch_power = 10;
+        if (selected?IsSneaking()) { line launch_power *= 0.5; }
+        if (!selected?IsGrounded()) { line launch_power *= 0.1; }
+        selected:LaunchForward(line launch_power){"Add to Current Velocity"="True", "Launch Axis"="Yaw Only"};
+        selected:GivePotionEffect(pot("Resistance", 2, 10)){"Effect Particles"="None"};
+
+        line player_loc = selected.Location;
+        line hit_tick = game.TicksSinceStartup - 20;
+        *preserve_players() {
+            select EntitiesByCondition entity?IsMob();
+            *for_entity() {
+                line e_hit_tick = line hit_enemies['%uuid'];
+                if (line e_hit_tick < line hit_tick) {
+                    line ("%uuid_can_be_hit") = 1;
+                } else {
+                    line ("%uuid_can_be_hit") = 0;
+                }
+            }
+            filter ByCondition var?Equals(line ("%uuid_can_be_hit"), 1);
+            filter ByCondition entity?IsNearLocation(loc:ShiftInDirection(line player_loc, 1.5), 6);
+            selectedEntity:Damage(5 + 5 * local level);
+            selectedEntity:LaunchUp(8);
+            selectedEntity:LaunchTowardLocation(line player_loc, -90);
+            *for_entity() {
+                dict:Set(line hit_enemies, '%uuid', game.TicksSinceStartup);
+            }
+        }
+        wait(1);
+    }
+}
+
+
+
+
+
+
+
+

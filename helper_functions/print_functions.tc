@@ -1,0 +1,59 @@
+FUNCTION println; PARAM text: optional plural any; {
+    local text = txt:SetToStyledText(line text){"Text Value Merging"="Add spaces"};
+
+    if (local text == s"") {
+        local text = txt:SetToStyledText(s"<grey>Printed message. ", game.TicksSinceStartup, s" <grey>tick(s) have passed since startup");
+    }
+
+    start print{"Local Variables" = "Copy"};
+}
+PROCESS print; {
+    select PlayersByCondition player?HasPlotPermission();
+    selected:SendMessage(local text);
+}
+FUNCTION print_separator; PARAM separator: txt; PARAM text: plural any; {
+    local text = s"";
+    for (line i in line text) {
+        line i = txt:SetToStyledText(line i);
+        local text = local text + line i + line separator;
+    }
+
+    start print{"Local Variables" = "Copy"};
+}
+FUNCTION print_send_to_mode; PARAM mode: str; {
+    call print_save(s"<gray>Sending %selected to", line mode);
+}
+FUNCTION printk; PARAM text: optional plural any; {
+    local text = txt:SetToStyledText(line text){"Text Value Merging"="Add spaces"};
+
+    if (local text == s"") {
+        local text = txt:SetToStyledText(s"<grey>Printed message. ", game.TicksSinceStartup, s" <grey>tick(s) have passed since startup");
+    }
+
+    start print{"Local Variables" = "Copy"};
+}
+
+
+
+FUNCTION print_save; PARAM args: optional plural any; {
+    # print(line args);
+
+    line message = str:SetToString("[", game.TicksSinceStartup, ", ", game.SelectionTargetNames, "] ", line args, "\n"){"Text Value Merging"="No spaces"};
+    line msg_len = str:Len(line message);
+
+    if (!var?Exists(saved saved_prints_var_count)) {
+        saved saved_prints_var_count = 1;
+    }
+
+    if (str:Len(saved ("saved_prints_%var(saved_prints_var_count)")) + line msg_len > 10000) {
+        saved saved_prints_var_count: num += 1;
+    }
+    saved ("saved_prints_%var(saved_prints_var_count)") = str:SetToString(saved ("saved_prints_%var(saved_prints_var_count)"), line message);
+}
+
+
+
+
+
+
+

@@ -1,0 +1,67 @@
+PROCESS slime_loop; {
+    select LastEntity();
+    line hp = selectedEntity.MaximumHealth;
+    selectedEntity:SetSize(4);
+    selectedEntity:SetMaximumHealth(line hp){"Heal Mob to Max Health"="True"};
+    selectedEntity:SetCustomName(call hp_to_name(selectedEntity.CurrentHealth, selectedEntity.MaximumHealth));
+    selectedEntity:SetFallingAttribute(0.1){"Attribute"="Gravity", "Value Type"="Direct"};
+
+    repeat {
+        line jump_cooldown = num:Random(80, 100);
+        wait(line jump_cooldown);
+        selectedEntity:SetFallingAttribute(0){"Attribute"="Fall damage multiplier", "Value Type"="Direct"};
+
+        if (!selectedEntity?Exists()) {
+            endthread;
+        }
+
+        line entity_loc = selectedEntity.Location;
+        *preserve_entities() {
+            select AllPlayers(); filter ByDistance(line entity_loc);
+            line xz_distance = loc:GetDistance(line entity_loc, selected.Location){"Distance Type"="Distance 2D (X/Z)"};
+            line vector = vec:Between(line entity_loc, selected.Location);
+            vec:SetComponent(line vector, 0){"Component"="Y"};
+            vec:SetLength(line vector, line xz_distance * num:Random(0.12,0.15){"Rounding Mode"="Decimal number"});
+            vec:SetComponent(line vector, 1.75){"Component"="Y"};
+        }
+        selectedEntity:SetVelocity(line vector){"Add to Current Velocity"="False"};
+        selectedEntity:SetTag('cancel_hit_player', 1);
+        repeat {
+            wait(1);
+            if (selectedEntity?IsGrounded()) { break; }
+        }
+        call shock_wave(4, 1, selected.Location, 20, par("Slime"), 0.5, 0.5);
+        wait(20);
+        selectedEntity:SetTag('cancel_hit_player', 0);
+    }
+}
+
+
+
+FUNCTION slime_death; {
+    *if (selectedEntity:GetTag('has_died'):num) {
+        return;
+    }
+    local slime_loc = selectedEntity.Location;
+    selectedEntity:SetTag('has_died', 1);
+    
+    start spawn_small_slimes{"Target Mode"="With no targets", "Local Variables"="Copy"};
+}
+
+PROCESS spawn_small_slimes; {
+    wait(20);
+    local slime_loc: loc;
+    repeat (4) {
+        line spawn_loc = loc:ShiftOnVector(local slime_loc, vec(num:Random(-1,1){"Rounding Mode"="Decimal number"}, 0, num:Random(-1,1){"Rounding Mode"="Decimal number"}), 1);
+        game:SpawnMob(item("slime_spawn_egg"), line spawn_loc);
+        lastEntity:SetDeathDropsEnabled(){"Has Death Drops"="Disable"};
+        lastEntity:SetMiscellaneousAttribute(100){"Attribute"="Follow range", "Value Type"="Direct"};
+        lastEntity:SetCombatAttribute(20){"Attribute"="Attack damage"};
+        lastEntity:SetSize(2);
+        lastEntity:SetMaximumHealth(1);
+        lastEntity:SetCustomName(call hp_to_name(lastEntity.CurrentHealth, lastEntity.MaximumHealth));
+        lastEntity:SetTag('cancel_transform', 1);
+        lastEntity:SetMiscellaneousAttribute(75){"Attribute"="Scale", "Value Type"="Percentage (Base)"};
+        lastEntity:SetTag('value', 50);
+    }
+}

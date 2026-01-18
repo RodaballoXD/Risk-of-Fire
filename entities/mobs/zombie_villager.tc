@@ -1,0 +1,36 @@
+PROCESS zombie_villager_init; {
+    select LastEntity();
+    selectedEntity:SetMovementAttribute(0.3){"Value Type"="Direct"};
+    selectedEntity:SetVillagerProfession(){"Profession"="Unemployed"};
+}
+
+FUNCTION zombie_villager_death; {
+    *if (selectedEntity:GetTag('is_baby'):num) {
+        return;
+    }
+    game:CancelEvent();
+    selectedEntity:SetIsBaby(){"Baby"="Enable"};
+    selectedEntity:SetTag('is_baby', 1);
+    
+    line adult_max_heath = selectedEntity.MaximumHealth;
+    line adult_damage = selected.AttackDamage;
+    selectedEntity:SetMaximumHealth(10){"Heal Mob to Max Health"="True"};
+    selectedEntity:SetCombatAttribute(0){"Attribute"="Attack damage"};
+    repeat (3) {
+        wait(20);
+        if (selectedEntity.CurrentHealth <= 0) { # If not alive
+            return;
+        }
+        allPlayers:DisplayParticleEffect(par("Composter", {"Amount"=10, "Spread"=[0.3,0.3]}), selectedEntity.EyeLocation);
+    }
+
+    if (selectedEntity.CurrentHealth <= 0) { return; }
+    selectedEntity:SetIsBaby(){"Baby"="Disable"};
+    selectedEntity:SetTag('is_baby', 0);
+    selectedEntity:SetMaximumHealth(line adult_max_heath / 2){"Heal Mob to Max Health"="True"};
+    selectedEntity:SetCustomName(call hp_to_name(selectedEntity.CurrentHealth, selectedEntity.MaximumHealth));
+    selectedEntity:SetCombatAttribute(line adult_damage){"Attribute"="Attack damage"};
+}
+
+
+

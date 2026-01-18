@@ -1,0 +1,77 @@
+FUNCTION creeper_explosion; {
+    line has_exploded = selectedEntity:GetTag('has_exploded');
+    *if (line has_exploded) {
+        return;
+    }
+    selectedEntity:SetTag('has_exploded', 1);
+
+    line location = selectedEntity.MidpointLocation;
+
+    game:CreateExplosion(line location, 0);
+    allPlayers:DisplayParticleEffect(par("Dust", {"Size"=3}), loc:ShiftOnAxis(line location, 0.5){"Coordinate"="Y"});
+    wait(30);
+
+    line vector = vec:SetComponent(selectedEntity.Direction, 0.0){"Component"="Y"};
+    repeat (16) {
+        line vector = vec:RotateAroundAxis(line vector, 22.5){"Axis"="Y"};
+        call projectile(4, 1, line location, line vector, 100, par("Dust", {"Size"=0.5}), 0.5, 0.03);
+    }
+}
+
+PROCESS creeper_loop; { # TODO: This (i think) caused a lagslay 
+    select LastEntity();
+
+    selectedEntity:SetAI(){"AI"="Insentient"};
+    selectedEntity:SetGravity(){"Gravity"="Disable"};
+
+    line creeper_speed = 1;
+
+    # print("HELLOOOOOOOO");
+    repeat {
+        line location = selectedEntity.Location;
+
+        *preserve_entities() {
+            select AllPlayers(); filter ByCondition player?IsNearLocation(line location, 25){"Shape"="Sphere"};
+            if (game.SelectionSize > 0) {
+                line creeper_speed += 0.1;
+                filter ByDistance(line location, 1);
+                line target = selected.Location;
+                line target = loc:ShiftOnAxis(line target, 0.5){"Coordinate"="Y"};
+                line target_found = 1;
+            }
+            else {
+                select RandomPlayers(1);
+                line target = loc:ShiftAllAxes(line location, num:Random(-5, 5), 0, num:Random(-5, 5));
+                line target = loc:SetCoordinate(line target, 51){"Coordinate"="Y"};
+                line target_found = 0;
+            }
+        }
+
+        if (game.SelectionSize == 0) {
+            endthread;
+        }
+
+        *if (line target_found) {
+            selectedEntity:FaceLocation(line target);
+            if (loc:GetDistance(selectedEntity.Location, line target) < 1) {
+                selectedEntity:SetCurrentHealth(0);
+            }
+            repeat (5) {
+                selectedEntity:LaunchTowardLocation(line target, 3 * line creeper_speed){"Ignore Distance"="True"};
+                wait(1);
+            }
+        } else {
+            selectedEntity:FaceLocation(loc(50.5, 57, 50.5));
+            repeat (20) {
+                selectedEntity:LaunchTowardLocation(line target, 1.5){"Ignore Distance"="True"};
+                wait(1);
+            }
+        }
+
+        
+        selectedEntity:SetFallingAttribute(0){"Attribute"="Fall damage multiplier"};
+    }
+}
+
+
+

@@ -1,0 +1,136 @@
+FUNCTION spawn_mobs; PARAM credits_to_use: num; PARAM mob_pool: list; PARAM max_credits: optional num = 0; PARAM chosen_mob: optional str = "any"; RETURNS num; {
+    *if (!line max_credits) {
+        line max_credits = line credits_to_use;
+    }
+
+    line remainig_credits = line credits_to_use;
+    if (line chosen_mob == "any") {
+        line mob = var:SetToRandom(line mob_pool);
+    } else {
+        line mob = line chosen_mob;
+    }    
+
+    line cost: num = global ENEMIES:dict[line mob]:dict["credits"];
+    line amount = 0;
+    line max_amount = num:Round((global MOB_CAP: num - call mobs_alive()) / 5){"Round Mode"="Floor"} + 1;
+    while (line remainig_credits >= 0) {
+        if (line cost >= line max_credits) { # if exceeds max after doing another iteration
+            break;
+        }
+        if (line amount >= line max_amount) {
+            break;
+        }
+
+        line remainig_credits -= line cost;
+        line max_credits -= line cost;
+        line amount += 1;
+    }
+    
+    local spawn_mobs_data = {"mob" = line mob, "amount" = line amount};
+    start spawn_mobs{"Local Variables"="Copy"};
+
+    return line credits_to_use - line remainig_credits;
+}
+PROCESS spawn_mobs; {
+    local spawn_mobs_data: dict;
+    line mob: str = local spawn_mobs_data["mob"];
+    line amount: num = local spawn_mobs_data["amount"];
+
+    line wait_time = 16;
+    repeat (line amount) {
+        if (global game_state:dict["state"] != "playing") { endthread; }
+
+        line mob_data: dict = dict:Get(global ENEMIES, line mob);
+
+        if (call mobs_alive() >= global MOB_CAP) {
+            call kill_least_valuable_mob();
+        }
+
+        game:SpawnMob(line mob_data["spawn_egg"], loc:Random(loc(0, 55, 0), loc(101, 55, 101)), line mob_data["hp"]);
+        lastEntity:SetDeathDropsEnabled(){"Has Death Drops"="Disable"};
+        lastEntity:SetHealthAttribute(0){"Attribute"="Armor", "Value Type"="Percentage (Base)"};
+        lastEntity:SetArmorItems(line mob_data["armor"]);
+        lastEntity:SetCustomName(call hp_to_name(lastEntity.CurrentHealth, lastEntity.MaximumHealth));
+        lastEntity:SetMiscellaneousAttribute(100){"Attribute"="Follow range", "Value Type"="Direct"};
+        for (line slot, line item in line mob_data["inventory"]:dict) {
+            lastEntity:SetEquipmentItem(line item){"Equipment Slot" = line slot ?"Main hand"};
+        }
+        lastEntity:SetTag("value", line mob_data["credits"]);
+        for (line tag_name, line value in line mob_data["tags"]:dict) {
+            lastEntity:SetTag(line tag_name, line value);
+        }
+        line on_spawn_tag = lastEntity:GetTag("on_spawn");
+        *if (line on_spawn_tag) { start ("%var(on_spawn_tag)"); } 
+        start handle_fall_damage;
+
+        wait(line wait_time);
+        line wait_time = num:Divide(line wait_time, 2){"Division Mode"="Floor result"} + 1;
+    }
+}
+
+FUNCTION kill_least_valuable_mob; { # Selection: Edits to Nothing()
+    line least_value_found = 0;
+    line mob_uuid = 0;
+    line mob_hp = 0;
+
+    select EntitiesByCondition entity?IsMob();
+    *for_entity() {
+        *if (!line mob_uuid) {
+            line least_value_found = selectedEntity:GetTag("value");
+            line mob_uuid = selectedEntity.UUID;
+            line mob_hp = selectedEntity.CurrentHealth;
+            continue;
+        }
+        line current_mob_value = selectedEntity:GetTag("value");
+        if (line current_mob_value < line least_value_found) {
+            line least_value_found = line current_mob_value;
+            line mob_uuid = selectedEntity.UUID;
+            line mob_hp = selectedEntity.CurrentHealth;
+            continue;
+        }
+        line current_mob_hp = selected.CurrentHealth;
+        if (line current_mob_value == line least_value_found) { if (line current_mob_hp < line mob_hp) {
+            line least_value_found = line current_mob_value;
+            line mob_uuid = selectedEntity.UUID;
+            line mob_hp = line current_mob_hp;
+            continue;
+        }}
+    }
+
+    select EntitiesByUUID(line mob_uuid);
+    selectedEntity:Remove();
+    select Nothing();
+}
+
+PROCESS handle_fall_damage; {
+    select LastEntity;
+    selectedEntity:SetFallingAttribute(0){"Attribute"="Fall damage multiplier"};
+    wait(40);
+    selectedEntity:SetFallingAttribute(100){"Attribute"="Fall damage multiplier", "Value Type"="Percentage (Base)"};
+}
+
+
+
+PROCESS kill_all_mobs; {
+    select AllEntities();
+    repeat (3) {
+        selectedEntity:Remove();
+        wait(20);
+    }
+}
+
+
+
+FUNCTION mobs_alive; RETURNS num; { # Selection: Edits to Nothing()
+    select EntitiesByCondition entity?IsMob();
+    line count = game.SelectionSize;
+    select Nothing();
+    return line count;
+}
+
+
+
+
+
+
+

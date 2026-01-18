@@ -1,0 +1,40 @@
+PROCESS player_loop; {
+    repeat {
+        wait(0);
+        call player_tick;
+        global ("%selected_actions") = [];
+
+        if (selected?HasPlotPermission()) {
+            selected:SendActionBar(txt:SetToStyledText(game.CPUUsage), txt:SetToStyledText(game.ServerTPS), selected.Ping){"Text Value Merging"="Add spaces"}; # Will not work, plot's owner hasn't unlocked
+        }
+
+        wait();
+    }
+}
+FUNCTION player_tick; {
+    selected:Heal(0.008);
+    selected:SetFoodLevel(20);
+
+    global ("%selected_damage_resistance"):num = num:Max(0, global ("%selected_damage_resistance") * 0.94 - 0.005);
+
+    if (list?Contains(global ("%selected_actions"), "right_click")) {
+    }
+
+    call player_execute_held_item();
+}
+
+FUNCTION player_execute_held_item; {
+    line held_item_tag = item:GetTag(default.MainHandItem, "while_held");
+
+    *if (line held_item_tag) {
+        select EventTarget(){"Event Target"="Default"};
+        call ("%var(held_item_tag)");
+    }
+}
+
+
+
+
+
+
+

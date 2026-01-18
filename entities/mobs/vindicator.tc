@@ -1,0 +1,7 @@
+PROCESS vindicator_init; {
+    select LastEntity();
+    selectedEntity:SetCombatAttribute(0){"Attribute"="Attack damage", "Value Type"="Direct"}; # So they somehow deal 5 damage
+}
+
+
+

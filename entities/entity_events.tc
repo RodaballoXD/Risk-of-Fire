@@ -1,0 +1,78 @@
+ENTITY_EVENT EntityDeath; { call entity_death(); }
+ENTITY_EVENT ProjKillEntity; { select EventTarget(){"Event Target"="Victim"}; call entity_death(); }
+PLAYER_EVENT KillMob; { select EventTarget(){"Event Target"="Victim"}; call entity_death(); }
+
+FUNCTION entity_death; {
+    line on_death_tag = selectedEntity:GetTag("on_death");
+    *if (line on_death_tag) {
+        call ("%var(on_death_tag)");
+    }
+}
+
+
+
+ENTITY_EVENT EntityDmg; {
+    defaultEntity:SetInvulnerabilityTicks(0);
+    wait(0);
+    defaultEntity:SetCustomName(call hp_to_name(defaultEntity.CurrentHealth, defaultEntity.MaximumHealth));
+}
+
+
+
+ENTITY_EVENT ProjDmgEntity; { # Default: Victim. Projectile: Projectile. Damager: Player.
+    if (projectile:GetTag("cancel_event"):num == 1) {
+        game:CancelEvent();
+    }
+
+    line damage = projectile:GetTag("damage");
+    if (line damage != 0) {
+        if (line damage == "0") { line damage = 0; }
+        game:SetEventDamage(line damage);
+    }
+}
+
+
+
+ENTITY_EVENT EntityCombust; {
+    if (game.CombustEventCause == "unknown") {
+        game:CancelEvent();
+    }
+}
+
+
+
+ENTITY_EVENT ShootBow; {
+    line cancel_shoot_bow_tag = selectedEntity:GetTag("cancel_shoot_bow");
+    if (line cancel_shoot_bow_tag == 1) {
+        game:CancelEvent();
+    }
+
+    line on_shoot_bow_tag = selectedEntity:GetTag("on_shoot_bow");
+    *if (line on_shoot_bow_tag) {
+        call ("%var(on_shoot_bow_tag)");
+    }
+}
+
+
+
+ENTITY_EVENT Transform; {
+    *if (selectedEntity:GetTag('cancel_transform'):num) {
+        game:CancelEvent();
+    }
+}
+
+
+
+PLAYER_EVENT EntityDmgPlayer; {
+    select EventTarget(){"Event Target"="Damager"};
+    *if (selectedEntity:GetTag('cancel_hit_player'):num) {
+        game:CancelEvent();
+    }
+}
+
+
+
+
+
+
+

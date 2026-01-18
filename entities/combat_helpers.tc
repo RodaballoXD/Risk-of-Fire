@@ -1,0 +1,140 @@
+FUNCTION projectile;
+PARAM damage: num;
+PARAM speed: num;
+PARAM spawn_location: loc; PARAM direction: vec;
+PARAM ticks: num;
+PARAM particle: par;
+PARAM knockback: optional num = 0;
+PARAM gravity: optional num = 0;
+PARAM par_is_ray: optional num = 1;
+PARAM destroyed: optional num = 1;
+PARAM on_hit: optional any = 0;
+{
+    local damage = line damage;
+    local location = line spawn_location;
+    local vector = vec:SetLength(line direction, line speed);
+    local particle = line particle;
+    local ticks = line ticks;
+    local par_is_ray = line par_is_ray;
+    local knockback = line knockback;
+    local gravity = line gravity;
+    local destroyed = line destroyed;
+    local on_hit = line on_hit;
+    start projectile{"Local Variables"="Copy", "Target Mode"="With no targets"};
+}
+
+PROCESS projectile; {
+    local damage: num; local location: loc; local vector: vec; local ticks: num; local particle: par; local par_is_ray: num; local knockback: num; local gravity: num; local destroyed: num; local on_hit: any;
+
+    repeat (line i to local ticks) {
+        line allowed_distance_multiplier = 1;
+        repeat (5) {
+            line new_a_d_m = line allowed_distance_multiplier * 2;
+            if (num:Remainder(line i, line new_a_d_m) == 0) {
+                line allowed_distance_multiplier = line new_a_d_m;
+            }
+            else {
+                break;
+            }
+        }
+        select AllPlayers();
+        *for_player() {
+            line ("%selected_ping_divider") = num:Max(0.25, (selected.Ping / 150) ^ 4);
+            line ("%selected_allowed_distance") = (20 * vec:Len(local vector) + 7.1) * line allowed_distance_multiplier / line ("%selected_ping_divider");
+        }
+        select PlayersByCondition player?IsNearLocation(
+            loc:ShiftOnVector(local location, vec:Multiply(local vector, 20)), # Vector position in 1 second
+            line ("%selected_allowed_distance") # Projectile's blocks travelled in a second + player sprintjumping speed
+        ); 
+
+        *if (local par_is_ray) {
+            selected:DisplayParticleRay(local particle, local location, local vector, 0.4);
+        } else {
+            selected:DisplayParticleEffect(local particle, local location);
+        }
+        # select Nothing();
+
+        select AllPlayers(); filter ByRaycast(line hit_location, local location, vec:Len(local vector), 0.1, 1);
+        if (game.SelectionSize > 0) {
+            call knockback_player(local vector, local knockback, 0.1);
+            selected:Damage(local damage);
+            call ("%var(on_hit)")(line hit_location);
+            *if (local destroyed) { endthread; }
+        }
+        select Nothing();
+
+        if (global game_state:dict["state"] != "playing") {
+            endthread;
+        }
+
+        local location = loc:ShiftOnVector(local location, local vector);
+        local vector = vec:Add(local vector, vec(0, local gravity * -1, 0));
+
+        wait(1);
+    }
+}
+
+
+
+FUNCTION shock_wave;
+PARAM damage: num;
+PARAM speed: num;
+PARAM spawn_location: loc;
+PARAM ticks: num;
+PARAM particle: par;
+PARAM knockback: optional num = 0;
+PARAM y_knockback: optional num = 0;
+PARAM on_hit: optional any = 0;
+{
+    local damage = line damage;
+    local spawn_location = line spawn_location;
+    local speed = line speed;
+    local particle = line particle;
+    local ticks = line ticks;
+    local knockback = line knockback;
+    local y_knockback = line y_knockback;
+    local on_hit = line on_hit;
+    start shock_wave{"Local Variables"="Copy", "Target Mode"="With no targets"};
+}
+
+PROCESS shock_wave; {
+    local damage: num;
+    local spawn_location: loc;
+    local speed: num;
+    local particle: par;
+    local ticks: num;
+    local knockback: num;
+    local y_knockback: num;
+
+    line distance_from_center = 0;
+    repeat (line i to local ticks) {
+        wait(1);
+        line distance_from_center += local speed;
+
+        select AllPlayers();
+        call particle_circle(local particle, local spawn_location, line distance_from_center, 0.5);
+        select Nothing();
+
+        line min_distance = line distance_from_center - local speed - 0.35;
+        select AllPlayers();
+        filter ByCondition player?IsNearLocation(local spawn_location, line distance_from_center);
+        filter ByCondition !player?IsNearLocation(local spawn_location, line min_distance);
+        filter ByCondition player?IsGrounded();
+        selected:Damage(local damage);
+        *for_player() {
+            call knockback_player(vec:Between(local spawn_location, selected.Location), local knockback, local y_knockback);
+        }
+        select Nothing();
+    }
+}
+
+
+
+FUNCTION hp_to_name; PARAM hp: num; PARAM max_hp: num; RETURNS txt; {
+    line hp_divided = num:Round(line hp / 2){"Round Mode"="Ceiling"};
+    line remaining = str:Repeat('|', line hp_divided);
+    line missing = str:Repeat('|', line max_hp / 2 - line hp_divided);
+    line expression = str:SetToString('<bold><red>', line remaining, '<gray>', line missing);
+
+    return txt:ParseExpression(line expression);
+}

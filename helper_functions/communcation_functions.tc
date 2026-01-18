@@ -1,0 +1,89 @@
+FUNCTION set_xp_all_players; PARAM level: num; PARAM percentage: num; {
+    select PlayersByCondition list?Contains(["playing", "dead"], global ("%selected_mode"));
+    selected:SetXPProgress(line percentage);
+    selected:SetExperience(line level){"Set Experience"="Level"};
+    select Nothing; # Instead of *preserve cuz it seems like selecting an empty list is different to reset selection
+}
+
+FUNCTION set_xp; PARAM level: num; PARAM percentage: num; {
+    selected:SetXPProgress(line percentage);
+    selected:SetExperience(line level){"Set Experience"="Level"};
+}
+
+
+
+FUNCTION action_bar; PARAM text: txt; PARAM ticks: optional num; PARAM clear: optional num; { # Selection: Any (players); Doesn't edit
+    local action_bar_info = {
+        'text' = line text,
+        'ticks' = line ticks,
+        'clear' = line clear
+    };
+    start action_bar{"Local Variables"="Copy", "Target Mode"="With current selection"};
+    local action_bar_info = 0;
+}
+
+PROCESS action_bar; {
+    for (line key, line value in local action_bar_info: dict) {
+        line ("_%var(key)") = line value;
+    }
+    repeat (line _ticks) {
+        selected:SendActionBar(line _text);
+        wait();
+    }
+    *if (line _clear) {
+        selected:SendActionBar(s"");
+    }
+}
+
+
+
+FUNCTION tip; { # Selection: Requires Any (players); Doesn't edit
+    line tips = [
+        s"You can play in third person view <gray>(f5)</gray>", # TODO: Key
+        s"Shift + Swap Hands <gray>(F)</gray> to change Third Person Camera Distance",
+        s"All items become stronger with a bigger stack size  <gray>See item description",
+        s"There are four item rarities: Common, <green>Rare</green>, <light_purple>Epic</light_purple> and <red>Legendary",
+        s"You will face a new enemy every wave",
+        s"Any suggestions? <gray>I don't really have a discord server so I guess you can DM @rodaballoxd :|",
+
+        s"When creepers fly...",
+        s"Baby Zombie Villagers become adults after 3 seconds",
+        s"Goats will knockback you really hard on hit",
+
+        s"Most abilities require no aming at all, some of them do require you to face the enemy",
+        s"Sniper can also be a movility item!",
+        s"Ground Slam is, um, a descriptive name",
+
+        s"<green>/Vote",
+        s"This project is made with Terracotta by @owl_froggy"
+    ];
+
+    line selected_tip = var:SetToRandom(line tips);
+
+    call action_bar(txt:SetToStyledText(s"<gray>Tip: </gray>", line selected_tip), txt:Len(line selected_tip));
+}
+
+
+
+FUNCTION particle_circle; PARAM particle: par; PARAM center: loc; PARAM radius: num; PARAM separation: num; {
+    line diameter = 2 * 3.1416 * line radius;
+    line par_amount = line diameter / line separation;
+    line angle_increase = 360 / line par_amount;
+
+    line angle = 0;
+    repeat (line par_amount) {
+        line par_loc = loc:ShiftOnVector(
+            line center,
+            vec:FromRotation(0, line angle, line radius)
+        );
+        selected:DisplayParticleEffect(line particle, line par_loc);
+        line angle += line angle_increase;
+    }
+}
+
+
+
+
+
+
+
